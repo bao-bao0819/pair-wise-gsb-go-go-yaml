@@ -58,6 +58,9 @@ type OverflowError struct {
 type DuplicateKeyError struct {
 	Message string
 	Token   *token.Token
+	// FirstToken is the token of the first declaration of the duplicated key.
+	// It is nil when the first declaration is not tracked.
+	FirstToken *token.Token
 }
 
 type UnknownFieldError struct {

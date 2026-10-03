@@ -26,45 +26,47 @@ import (
 
 // Decoder reads and decodes YAML values from an input stream.
 type Decoder struct {
-	reader               io.Reader
-	referenceReaders     []io.Reader
-	anchorNodeMap        map[string]ast.Node
-	anchorValueMap       map[string]reflect.Value
-	customUnmarshalerMap map[reflect.Type]func(context.Context, interface{}, []byte) error
-	commentMaps          []CommentMap
-	toCommentMap         CommentMap
-	opts                 []DecodeOption
-	referenceFiles       []string
-	referenceDirs        []string
-	isRecursiveDir       bool
-	isResolvedReference  bool
-	validator            StructValidator
-	disallowUnknownField bool
-	allowedFieldPrefixes []string
-	allowDuplicateMapKey bool
-	useOrderedMap        bool
-	useJSONUnmarshaler   bool
-	parsedFile           *ast.File
-	streamIndex          int
-	decodeDepth          int
+	reader                          io.Reader
+	referenceReaders                []io.Reader
+	anchorNodeMap                   map[string]ast.Node
+	anchorValueMap                  map[string]reflect.Value
+	customUnmarshalerMap            map[reflect.Type]func(context.Context, interface{}, []byte) error
+	commentMaps                     []CommentMap
+	toCommentMap                    CommentMap
+	opts                            []DecodeOption
+	referenceFiles                  []string
+	referenceDirs                   []string
+	isRecursiveDir                  bool
+	isResolvedReference             bool
+	validator                       StructValidator
+	disallowUnknownField            bool
+	allowedFieldPrefixes            []string
+	allowDuplicateMapKey            bool
+	disallowDuplicateMapKeyResolved bool
+	useOrderedMap                   bool
+	useJSONUnmarshaler              bool
+	parsedFile                      *ast.File
+	streamIndex                     int
+	decodeDepth                     int
 }
 
 // NewDecoder returns a new decoder that reads from r.
 func NewDecoder(r io.Reader, opts ...DecodeOption) *Decoder {
 	return &Decoder{
-		reader:               r,
-		anchorNodeMap:        map[string]ast.Node{},
-		anchorValueMap:       map[string]reflect.Value{},
-		customUnmarshalerMap: map[reflect.Type]func(context.Context, interface{}, []byte) error{},
-		opts:                 opts,
-		referenceReaders:     []io.Reader{},
-		referenceFiles:       []string{},
-		referenceDirs:        []string{},
-		isRecursiveDir:       false,
-		isResolvedReference:  false,
-		disallowUnknownField: false,
-		allowDuplicateMapKey: false,
-		useOrderedMap:        false,
+		reader:                          r,
+		anchorNodeMap:                   map[string]ast.Node{},
+		anchorValueMap:                  map[string]reflect.Value{},
+		customUnmarshalerMap:            map[reflect.Type]func(context.Context, interface{}, []byte) error{},
+		opts:                            opts,
+		referenceReaders:                []io.Reader{},
+		referenceFiles:                  []string{},
+		referenceDirs:                   []string{},
+		isRecursiveDir:                  false,
+		isResolvedReference:             false,
+		disallowUnknownField:            false,
+		allowDuplicateMapKey:            false,
+		disallowDuplicateMapKeyResolved: false,
+		useOrderedMap:                   false,
 	}
 }
 
@@ -514,6 +516,9 @@ func (d *Decoder) nodeToValue(ctx context.Context, node ast.Node) (any, error) {
 		}
 		return map[string]interface{}{key: v}, nil
 	case *ast.MappingNode:
+		if err := d.validateMapKeyUniqueness(ctx, n); err != nil {
+			return nil, err
+		}
 		if d.useOrderedMap {
 			m := make(MapSlice, 0, len(n.Values))
 			for _, value := range n.Values {
@@ -1129,6 +1134,9 @@ func (d *Decoder) keyToNodeMap(ctx context.Context, node ast.Node, ignoreMergeKe
 	if err != nil {
 		return nil, err
 	}
+	if err := d.validateMapKeyUniqueness(ctx, mapNode); err != nil {
+		return nil, err
+	}
 	keyMap := map[string]struct{}{}
 	keyToNodeMap := map[string]ast.Node{}
 	mapIter := mapNode.MapRange()
@@ -1649,6 +1657,10 @@ func (d *Decoder) decodeMapItem(ctx context.Context, dst *MapItem, src ast.Node)
 }
 
 func (d *Decoder) validateDuplicateKey(keyMap map[string]struct{}, key interface{}, keyNode ast.Node) error {
+	if d.disallowDuplicateMapKeyResolved {
+		// Duplicate keys are validated by validateMapKeyUniqueness instead.
+		return nil
+	}
 	k, ok := key.(string)
 	if !ok {
 		return nil
@@ -1671,6 +1683,9 @@ func (d *Decoder) decodeMapSlice(ctx context.Context, dst *MapSlice, src ast.Nod
 
 	mapNode, err := d.getMapNode(src, isMerge(ctx))
 	if err != nil {
+		return err
+	}
+	if err := d.validateMapKeyUniqueness(ctx, mapNode); err != nil {
 		return err
 	}
 	mapSlice := MapSlice{}
@@ -1718,6 +1733,9 @@ func (d *Decoder) decodeMap(ctx context.Context, dst reflect.Value, src ast.Node
 
 	mapNode, err := d.getMapNode(src, isMerge(ctx))
 	if err != nil {
+		return err
+	}
+	if err := d.validateMapKeyUniqueness(ctx, mapNode); err != nil {
 		return err
 	}
 	mapType := dst.Type()
@@ -1899,7 +1917,10 @@ func (d *Decoder) parse(ctx context.Context, bytes []byte) (*ast.File, error) {
 		parseMode = parser.ParseComments
 	}
 	var opts []parser.Option
-	if d.allowDuplicateMapKey {
+	if d.allowDuplicateMapKey || d.disallowDuplicateMapKeyResolved {
+		// DisallowDuplicateMapKeyResolved replaces the parser's literal
+		// duplicate key check with the resolved key uniqueness check
+		// performed at decode time.
 		opts = append(opts, parser.AllowDuplicateMapKey())
 	}
 	f, err := parser.ParseBytes(bytes, parseMode, opts...)

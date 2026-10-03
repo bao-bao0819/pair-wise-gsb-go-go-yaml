@@ -18,6 +18,7 @@ import (
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/internal/errors"
 	"github.com/goccy/go-yaml/parser"
+	"github.com/goccy/go-yaml/token"
 )
 
 type Child struct {
@@ -2114,6 +2115,319 @@ a: c
 		}
 		if err := yaml.NewDecoder(strings.NewReader(yml), yaml.AllowDuplicateMapKey()).Decode(&v); err != nil {
 			t.Fatal(err)
+		}
+	})
+}
+
+func TestDecoder_DisallowDuplicateMapKeyResolved(t *testing.T) {
+	type position struct {
+		line   int
+		column int
+	}
+	tests := []struct {
+		name     string
+		source   string
+		wantErr  bool
+		wantMsg  string
+		firstPos position
+		dupPos   position
+	}{
+		{
+			name:     "same integer in different bases",
+			source:   "1: a\n0x1: b",
+			wantErr:  true,
+			wantMsg:  `duplicate key "0x1": key "1" with the same resolved value is already declared at [1:1]`,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:     "octal and decimal integer",
+			source:   "0o1: a\n1: b",
+			wantErr:  true,
+			wantMsg:  `duplicate key "1": key "0o1" with the same resolved value is already declared at [1:1]`,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:     "signed and hexadecimal integer",
+			source:   "+10: a\n0xA: b",
+			wantErr:  true,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:    "string key and integer key are not the same key",
+			source:  "\"1\": a\n1: b",
+			wantErr: false,
+		},
+		{
+			name:    "explicit !!str key and integer key are not the same key",
+			source:  "!!str 1: a\n1: b",
+			wantErr: false,
+		},
+		{
+			name:     "explicit !!str key and quoted string key",
+			source:   "!!str 1: a\n'1': b",
+			wantErr:  true,
+			wantMsg:  `duplicate key "'1'": key "!!str 1" with the same resolved value is already declared at [1:1]`,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:     "explicit !!int key and plain integer key",
+			source:   "1: a\n!!int '1': b",
+			wantErr:  true,
+			wantMsg:  `duplicate key "!!int '1'": key "1" with the same resolved value is already declared at [1:1]`,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:     "boolean keys with different spellings",
+			source:   "true: a\nTrue: b",
+			wantErr:  true,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:    "boolean key and string key are not the same key",
+			source:  "false: a\n\"false\": b",
+			wantErr: false,
+		},
+		{
+			name:     "same float",
+			source:   "1.0: a\n1.0: b",
+			wantErr:  true,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:    "integer key and float key are not the same key",
+			source:  "1: a\n1.0: b",
+			wantErr: false,
+		},
+		{
+			name:     "negative zero float and positive zero float",
+			source:   "-0.0: a\n0.0: b",
+			wantErr:  true,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:     "negative zero integer and zero integer",
+			source:   "-0: a\n0: b",
+			wantErr:  true,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:     "infinity keys with different spellings",
+			source:   ".inf: a\n.Inf: b",
+			wantErr:  true,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:    "positive and negative infinity are not the same key",
+			source:  ".inf: a\n-.inf: b",
+			wantErr: false,
+		},
+		{
+			name:     "all NaN keys are the same key",
+			source:   ".nan: a\n.NaN: b",
+			wantErr:  true,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:     "null keys with different spellings",
+			source:   "null: a\n~: b",
+			wantErr:  true,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:     "binary keys with the same decoded bytes",
+			source:   "!!binary aGk=: a\n!!binary aGk=: b",
+			wantErr:  true,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:     "timestamp keys denoting the same instant",
+			source:   "!!timestamp 2020-01-01T00:00:00Z: a\n!!timestamp 2020-01-01T00:00:00Z: b",
+			wantErr:  true,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:     "key name containing dots",
+			source:   "a.b: 1\na.b: 2",
+			wantErr:  true,
+			wantMsg:  `duplicate key "a.b": key "a.b" with the same resolved value is already declared at [1:1]`,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:     "quoted and plain dotted keys",
+			source:   "'a.b': 1\na.b: 2",
+			wantErr:  true,
+			wantMsg:  `duplicate key "a.b": key "'a.b'" with the same resolved value is already declared at [1:1]`,
+			firstPos: position{1, 1},
+			dupPos:   position{2, 1},
+		},
+		{
+			name:    "different dotted keys",
+			source:  "a.b: 1\na.c: 2",
+			wantErr: false,
+		},
+		{
+			name:     "duplicate key in nested mapping",
+			source:   "top:\n  1: a\n  0x1: b",
+			wantErr:  true,
+			wantMsg:  `duplicate key "0x1": key "1" with the same resolved value is already declared at [2:3]`,
+			firstPos: position{2, 3},
+			dupPos:   position{3, 3},
+		},
+		{
+			name:    "same key in different nested mappings",
+			source:  "a:\n  x: 1\nb:\n  x: 2",
+			wantErr: false,
+		},
+		{
+			name:    "merge override follows merge rules",
+			source:  "<<:\n  a: 1\na: 2",
+			wantErr: false,
+		},
+		{
+			name:    "conflicts between merge sources follow merge rules",
+			source:  "<<: [{a: 1}, {a: 2}]",
+			wantErr: false,
+		},
+		{
+			name:     "explicit duplicate inside merged mapping",
+			source:   "<<: {0x1: a, 1: b}",
+			wantErr:  true,
+			firstPos: position{1, 6},
+			dupPos:   position{1, 14},
+		},
+		{
+			name:     "explicit duplicate inside anchored merge source",
+			source:   "base: &b\n  1: a\n  0x1: b\nfoo:\n  <<: *b",
+			wantErr:  true,
+			firstPos: position{2, 3},
+			dupPos:   position{3, 3},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var v any
+			err := yaml.NewDecoder(
+				strings.NewReader(test.source),
+				yaml.DisallowDuplicateMapKeyResolved(),
+			).Decode(&v)
+			if !test.wantErr {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected duplicate key error, but got nil")
+			}
+			var dupErr *yaml.DuplicateKeyError
+			if !errors.As(err, &dupErr) {
+				t.Fatalf("expected DuplicateKeyError, but got %T: %v", err, err)
+			}
+			if test.wantMsg != "" && dupErr.GetMessage() != test.wantMsg {
+				t.Fatalf("unexpected message:\nwant: %s\ngot:  %s", test.wantMsg, dupErr.GetMessage())
+			}
+			if dupErr.FirstToken == nil {
+				t.Fatal("FirstToken is not set")
+			}
+			if got := dupErr.FirstToken.Position; got.Line != test.firstPos.line || got.Column != test.firstPos.column {
+				t.Fatalf("unexpected first declaration position: want %v, got [%d:%d]", test.firstPos, got.Line, got.Column)
+			}
+			if got := dupErr.Token.Position; got.Line != test.dupPos.line || got.Column != test.dupPos.column {
+				t.Fatalf("unexpected duplicate declaration position: want %v, got [%d:%d]", test.dupPos, got.Line, got.Column)
+			}
+		})
+	}
+}
+
+func TestDecoder_DisallowDuplicateMapKeyResolved_Destinations(t *testing.T) {
+	source := "1: a\n0x1: b"
+	t.Run("map", func(t *testing.T) {
+		var v map[string]string
+		err := yaml.NewDecoder(strings.NewReader(source), yaml.DisallowDuplicateMapKeyResolved()).Decode(&v)
+		if err == nil {
+			t.Fatal("expected duplicate key error, but got nil")
+		}
+	})
+	t.Run("mapslice", func(t *testing.T) {
+		var v yaml.MapSlice
+		err := yaml.NewDecoder(strings.NewReader(source), yaml.DisallowDuplicateMapKeyResolved()).Decode(&v)
+		if err == nil {
+			t.Fatal("expected duplicate key error, but got nil")
+		}
+	})
+	t.Run("struct", func(t *testing.T) {
+		var v struct {
+			A string `yaml:"a"`
+		}
+		err := yaml.NewDecoder(strings.NewReader("a: x\na: y"), yaml.DisallowDuplicateMapKeyResolved()).Decode(&v)
+		if err == nil {
+			t.Fatal("expected duplicate key error, but got nil")
+		}
+	})
+	t.Run("allow duplicate map key takes precedence", func(t *testing.T) {
+		var v any
+		err := yaml.NewDecoder(
+			strings.NewReader(source),
+			yaml.AllowDuplicateMapKey(),
+			yaml.DisallowDuplicateMapKeyResolved(),
+		).Decode(&v)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("complex mapping keys are excluded", func(t *testing.T) {
+		pos := func(line, column int) *token.Position {
+			return &token.Position{Line: line, Column: column}
+		}
+		seqKey := func(line int) *ast.TagNode {
+			seq := ast.Sequence(token.New("[", "[", pos(line, 1)), true)
+			seq.Values = append(seq.Values,
+				ast.Integer(token.New("1", "1", pos(line, 2))),
+				ast.Integer(token.New("2", "2", pos(line, 3))),
+			)
+			return &ast.TagNode{
+				Start: token.New("!!seq", "!!seq", pos(line, 1)),
+				Value: seq,
+			}
+		}
+		node := ast.Mapping(token.New("", "", pos(1, 1)), true,
+			ast.MappingValue(token.New(":", ":", pos(1, 5)), seqKey(1), ast.String(token.New("a", "a", pos(1, 6)))),
+			ast.MappingValue(token.New(":", ":", pos(2, 5)), seqKey(2), ast.String(token.New("b", "b", pos(2, 6)))),
+		)
+		var v any
+		err := yaml.NewDecoder(strings.NewReader(""), yaml.DisallowDuplicateMapKeyResolved()).DecodeFromNode(node, &v)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestDecoder_DisallowDuplicateMapKeyResolved_LenientModeUnchanged(t *testing.T) {
+	t.Run("different integer notations are allowed by default", func(t *testing.T) {
+		var v any
+		if err := yaml.Unmarshal([]byte("1: a\n0x1: b"), &v); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("literal duplicate is still an error by default", func(t *testing.T) {
+		var v any
+		if err := yaml.Unmarshal([]byte("a: 1\na: 2"), &v); err == nil {
+			t.Fatal("expected duplicate key error, but got nil")
 		}
 	})
 }

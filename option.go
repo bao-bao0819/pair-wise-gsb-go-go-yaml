@@ -86,6 +86,40 @@ func AllowDuplicateMapKey() DecodeOption {
 	}
 }
 
+// DisallowDuplicateMapKeyResolved enables a strict mapping key uniqueness check
+// that compares keys by their resolved value under the decoder's scalar
+// resolution rules and explicit tags, instead of their literal text.
+//
+// The following rules apply:
+//   - String, boolean, integer and floating-point keys are distinct families:
+//     the string "1" is not the same key as the integer 1, and the integer 1
+//     is not the same key as the float 1.0.
+//   - Integer keys are compared by value across notations, so 1, 0x1, 0o1
+//     and +1 are the same key.
+//   - Floating-point keys treat -0.0 and 0.0 as the same key, and all NaN
+//     keys as the same key. Positive and negative infinity are distinct.
+//   - Explicit tags are honored: !!str 1 is the string "1", while !!int "1"
+//     is the integer 1. Non-reserved tags do not affect key identity.
+//   - All null keys (null, ~, or an empty key) are the same key.
+//   - Keys introduced by merge keys (<<) follow the existing merge rules and
+//     are not reported as duplicates of explicit keys; explicit duplicates
+//     inside a merged mapping are reported within that mapping's own scope.
+//   - Non-comparable complex keys (sequences or mappings used as keys) are
+//     excluded from the check.
+//
+// The returned error reports the source positions of both the first and the
+// duplicate declaration and preserves the original key spelling.
+//
+// When this option is set, the parser's literal duplicate key check is
+// disabled in favor of this check. AllowDuplicateMapKey takes precedence
+// and disables duplicate key checking entirely.
+func DisallowDuplicateMapKeyResolved() DecodeOption {
+	return func(d *Decoder) error {
+		d.disallowDuplicateMapKeyResolved = true
+		return nil
+	}
+}
+
 // UseOrderedMap can be interpreted as a map,
 // and uses MapSlice ( ordered map ) aggressively if there is no type specification
 func UseOrderedMap() DecodeOption {
