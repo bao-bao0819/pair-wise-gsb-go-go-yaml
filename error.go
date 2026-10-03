@@ -24,6 +24,7 @@ type (
 	TypeError               = errors.TypeError
 	OverflowError           = errors.OverflowError
 	DuplicateKeyError       = errors.DuplicateKeyError
+	UniqueMapKeyError       = errors.UniqueMapKeyError
 	UnknownFieldError       = errors.UnknownFieldError
 	UnexpectedNodeTypeError = errors.UnexpectedNodeTypeError
 	Error                   = errors.Error

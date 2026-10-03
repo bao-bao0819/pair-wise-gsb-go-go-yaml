@@ -40,6 +40,11 @@ func Parse(tokens token.Tokens, mode Mode, opts ...Option) (*ast.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	if p.uniqueMapKeys && !p.allowDuplicateMapKey {
+		if err := validateUniqueMapKeys(f); err != nil {
+			return nil, err
+		}
+	}
 	return f, nil
 }
 
@@ -78,6 +83,7 @@ type parser struct {
 	pathMap               map[string]ast.Node
 	yamlVersion           YAMLVersion
 	allowDuplicateMapKey  bool
+	uniqueMapKeys         bool
 	secondaryTagDirective *ast.DirectiveNode
 }
 
@@ -639,7 +645,7 @@ func (p *parser) parseMapKey(ctx *context, g *TokenGroup) (ast.MapKeyNode, error
 }
 
 func (p *parser) validateMapKey(ctx *context, tk *token.Token, keyPath string, colonTk *Token) error {
-	if !p.allowDuplicateMapKey {
+	if !p.allowDuplicateMapKey && !p.uniqueMapKeys {
 		if n, exists := p.pathMap[keyPath]; exists {
 			pos := n.GetToken().Position
 			return errors.ErrSyntax(

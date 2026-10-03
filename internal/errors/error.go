@@ -33,6 +33,7 @@ var (
 	_ Error = new(TypeError)
 	_ Error = new(OverflowError)
 	_ Error = new(DuplicateKeyError)
+	_ Error = new(UniqueMapKeyError)
 	_ Error = new(UnknownFieldError)
 	_ Error = new(UnexpectedNodeTypeError)
 )
@@ -58,6 +59,15 @@ type OverflowError struct {
 type DuplicateKeyError struct {
 	Message string
 	Token   *token.Token
+}
+
+// UniqueMapKeyError is returned when a mapping declares two semantically
+// equal keys under strict unique-key validation. Token is the duplicate
+// declaration; FirstToken is the first declaration of the same key.
+type UniqueMapKeyError struct {
+	Message    string
+	Token      *token.Token
+	FirstToken *token.Token
 }
 
 type UnknownFieldError struct {
@@ -102,6 +112,16 @@ func ErrDuplicateKey(msg string, tk *token.Token) *DuplicateKeyError {
 	return &DuplicateKeyError{
 		Message: msg,
 		Token:   tk,
+	}
+}
+
+// ErrUniqueMapKey creates a unique map key error instance with the duplicate
+// token and the token of the first declaration.
+func ErrUniqueMapKey(msg string, tk, firstTk *token.Token) *UniqueMapKeyError {
+	return &UniqueMapKeyError{
+		Message:    msg,
+		Token:      tk,
+		FirstToken: firstTk,
 	}
 }
 
@@ -193,6 +213,27 @@ func (e *DuplicateKeyError) Error() string {
 }
 
 func (e *DuplicateKeyError) FormatError(colored, inclSource bool) string {
+	return FormatError(e.Message, e.Token, colored, inclSource)
+}
+
+func (e *UniqueMapKeyError) GetMessage() string {
+	return e.Message
+}
+
+func (e *UniqueMapKeyError) GetToken() *token.Token {
+	return e.Token
+}
+
+// GetFirstToken returns the token of the first declaration of the key.
+func (e *UniqueMapKeyError) GetFirstToken() *token.Token {
+	return e.FirstToken
+}
+
+func (e *UniqueMapKeyError) Error() string {
+	return e.FormatError(defaultFormatColor, defaultIncludeSource)
+}
+
+func (e *UniqueMapKeyError) FormatError(colored, inclSource bool) string {
 	return FormatError(e.Message, e.Token, colored, inclSource)
 }
 

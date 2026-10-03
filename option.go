@@ -86,6 +86,37 @@ func AllowDuplicateMapKey() DecodeOption {
 	}
 }
 
+// UniqueMapKeys enables strict mapping key uniqueness validation.
+//
+// Keys are judged equivalent according to the current scalar resolution rules
+// and explicit tags rather than by a literal text comparison:
+//
+//   - String, boolean, integer and float keys form distinct equivalence
+//     classes, so the string "1" is never equal to the integer 1.
+//   - Integers written in different bases or with underscores are equal when
+//     their values match (e.g. 0x10, 0o20, 0b10000 and 16).
+//   - Floats follow IEEE 754 equality: -0.0 and 0.0 are equal, while .nan is
+//     equal to nothing (so repeated .nan keys are not reported).
+//   - Explicit tags participate in resolution: !!str 1 is a string key and
+//     !!bool "true" is a boolean key. Scalars with other explicit tags
+//     (e.g. !!binary, !!timestamp or custom tags) are compared only against
+//     the same tag plus the same scalar text.
+//   - Complex keys (mappings, sequences) and alias keys are not compared.
+//
+// The error reports both the first and the duplicate declaration position and
+// preserves the original spelling of the key. Overrides introduced by merge
+// keys ("<<") follow the existing merge rules and are not treated as explicit
+// duplicate declarations.
+//
+// When enabled, the default literal duplicate key check is replaced by this
+// semantic check.
+func UniqueMapKeys() DecodeOption {
+	return func(d *Decoder) error {
+		d.uniqueMapKeys = true
+		return nil
+	}
+}
+
 // UseOrderedMap can be interpreted as a map,
 // and uses MapSlice ( ordered map ) aggressively if there is no type specification
 func UseOrderedMap() DecodeOption {

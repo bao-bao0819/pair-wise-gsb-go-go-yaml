@@ -42,6 +42,7 @@ type Decoder struct {
 	disallowUnknownField bool
 	allowedFieldPrefixes []string
 	allowDuplicateMapKey bool
+	uniqueMapKeys        bool
 	useOrderedMap        bool
 	useJSONUnmarshaler   bool
 	parsedFile           *ast.File
@@ -64,6 +65,7 @@ func NewDecoder(r io.Reader, opts ...DecodeOption) *Decoder {
 		isResolvedReference:  false,
 		disallowUnknownField: false,
 		allowDuplicateMapKey: false,
+		uniqueMapKeys:        false,
 		useOrderedMap:        false,
 	}
 }
@@ -1901,6 +1903,9 @@ func (d *Decoder) parse(ctx context.Context, bytes []byte) (*ast.File, error) {
 	var opts []parser.Option
 	if d.allowDuplicateMapKey {
 		opts = append(opts, parser.AllowDuplicateMapKey())
+	}
+	if d.uniqueMapKeys {
+		opts = append(opts, parser.UniqueMapKeys())
 	}
 	f, err := parser.ParseBytes(bytes, parseMode, opts...)
 	if err != nil {
