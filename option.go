@@ -350,3 +350,22 @@ func CommentToMap(cm CommentMap) DecodeOption {
 		return nil
 	}
 }
+
+// WithResourceLimit bounds the resources the [Decoder] may consume while
+// decoding a single input. It limits the number of syntax nodes, the maximum
+// alias reference depth and the estimated number of logically expanded nodes
+// (counting every alias reference as a full expansion).
+//
+// The check runs on the parsed AST before the expanded Go value is allocated,
+// so short but highly amplified alias graphs are rejected cheaply. Cyclic
+// alias references are reported as [*AliasCycleError], budget violations as
+// [*ResourceLimitError].
+//
+// Limits are isolated per decoder instance. A zero-valued [ResourceLimit]
+// (or a zero field) imposes no limit and preserves the default behavior.
+func WithResourceLimit(limit ResourceLimit) DecodeOption {
+	return func(d *Decoder) error {
+		d.resourceLimit = &limit
+		return nil
+	}
+}

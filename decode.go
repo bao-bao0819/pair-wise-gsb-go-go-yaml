@@ -44,6 +44,7 @@ type Decoder struct {
 	allowDuplicateMapKey bool
 	useOrderedMap        bool
 	useJSONUnmarshaler   bool
+	resourceLimit        *ResourceLimit
 	parsedFile           *ast.File
 	streamIndex          int
 	decodeDepth          int
@@ -1906,6 +1907,9 @@ func (d *Decoder) parse(ctx context.Context, bytes []byte) (*ast.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := d.checkParsedFile(f); err != nil {
+		return nil, err
+	}
 	normalizedFile := &ast.File{}
 	for _, doc := range f.Docs {
 		// try to decode ast.Node to value and map anchor value to anchorMap
@@ -2021,6 +2025,9 @@ func (d *Decoder) DecodeFromNodeContext(ctx context.Context, node ast.Node, v in
 		if err := d.decodeInit(ctx); err != nil {
 			return err
 		}
+	}
+	if err := d.CheckResourceLimit(node); err != nil {
+		return err
 	}
 	// resolve references to the anchor on the same file
 	if _, err := d.nodeToValue(ctx, node); err != nil {
