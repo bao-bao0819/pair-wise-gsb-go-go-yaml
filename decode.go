@@ -47,11 +47,30 @@ type Decoder struct {
 	parsedFile           *ast.File
 	streamIndex          int
 	decodeDepth          int
+	resourceLimits       ResourceLimits
+	resourceLimitsSet    bool
 }
 
 // NewDecoder returns a new decoder that reads from r.
 func NewDecoder(r io.Reader, opts ...DecodeOption) *Decoder {
-	return &Decoder{
+	d := newDecoder(r, opts...)
+	for _, opt := range opts {
+		// Apply options that must be visible before any decode, such as the
+		// resource policy used by the check-only API. Options are probed on a
+		// fully initialized throwaway decoder; decoding still applies them
+		// normally later.
+		probe := newDecoder(nil)
+		_ = opt(probe)
+		if probe.resourceLimitsSet {
+			d.resourceLimits = probe.resourceLimits
+			d.resourceLimitsSet = true
+		}
+	}
+	return d
+}
+
+func newDecoder(r io.Reader, opts ...DecodeOption) *Decoder {
+	d := &Decoder{
 		reader:               r,
 		anchorNodeMap:        map[string]ast.Node{},
 		anchorValueMap:       map[string]reflect.Value{},
@@ -66,6 +85,7 @@ func NewDecoder(r io.Reader, opts ...DecodeOption) *Decoder {
 		allowDuplicateMapKey: false,
 		useOrderedMap:        false,
 	}
+	return d
 }
 
 const maxDecodeDepth = 10000
@@ -1905,6 +1925,14 @@ func (d *Decoder) parse(ctx context.Context, bytes []byte) (*ast.File, error) {
 	f, err := parser.ParseBytes(bytes, parseMode, opts...)
 	if err != nil {
 		return nil, err
+	}
+	if d.resourceLimits.enabled() {
+		// Enforce the resource policy before normalization, which eagerly
+		// expands aliases through nodeToValue and would otherwise allocate the
+		// oversized containers.
+		if err := newResourceChecker(d.resourceLimits).check(f, true); err != nil {
+			return nil, err
+		}
 	}
 	normalizedFile := &ast.File{}
 	for _, doc := range f.Docs {

@@ -188,6 +188,32 @@ if err := dec.Decode(&v); err != nil {
 fmt.Printf("%+v\n", v) // {A:{B:1 C:hello}}
 ```
 
+## 2.1 Resource limits
+
+A short YAML document can expand into a very large value when aliases refer to
+anchors that themselves contain aliases. Use `WithResourceLimits` to reject
+such documents before the oversized Go containers are allocated:
+
+```go
+limits := yaml.ResourceLimits{
+	MaxSyntaxNodes:  1_000_000, // syntax nodes in the parsed source
+	MaxAliasDepth:   100,       // nested alias references along one path
+	MaxLogicalNodes: 10_000_000, // nodes after expanding every alias
+}
+dec := yaml.NewDecoder(reader, yaml.WithResourceLimits(limits))
+```
+
+Limits are per decoder instance; the zero value (or omitting the option) keeps
+the default behavior. Cyclic alias references are reported separately as
+`yaml.AliasCycleError`, never as ordinary depth violations. The weight of a
+shared anchor target is cached, but every reference still contributes that
+weight to the estimated total.
+
+`Decoder.CheckResourceLimits` (and the package-level `CheckResourceLimits`)
+walk only the AST reference graph: they count syntax nodes, measure alias
+depth and report cycles without expanding aliases, so they never enforce
+`MaxLogicalNodes`.
+
 ## 3. Encode with `Anchor` and `Alias`
 
 ### 3.1. Explicitly declared `Anchor` name and `Alias` name
